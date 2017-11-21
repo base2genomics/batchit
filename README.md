@@ -35,10 +35,13 @@ batchit submit \
 ```
 
 where the `image` must be present in your elastic container registry, and the role and queue in their respective places
-(IAM, batch respectively). In this example `some.sh` contains the commands to be run. It will have access to a 500GB
-`st1` volume created with ext4 and mounted to `/mnt/my-ebs`.
+(IAM, batch respectively). In this example `align.sh` contains the commands to be run. It will have access to a 500GB
+`st1` volume created with ext4 and mounted to `/mnt/my-ebs`. This will automatically set docker to run in privileged
+mode so that it has access to the EBS volume that is attached to /dev in the instance.
+(We stole this idea from [aegea](https://github.com/kislyuk/aegea))
 
-The volume will be cleaned up automatically when the container exits.
+
+The volume will be cleaned up automatically when the **container** exits.
 
 For this example a simplified `align.sh` might look like:
 
@@ -58,6 +61,7 @@ ebsmount
 
 create, attach, format, and mount an EBS volume of the specified size and type to the specified mount-point.
 If `-n` is greater than 1, then it will automatically RAID0 (performance, not reliability) the drives.
+This is used (in shorthand) by the `--ebs` argument to `batchit submit` above.
 
 ```
 Usage: batchit [--size SIZE] --mountpoint MOUNTPOINT [--volumetype VOLUMETYPE] [--fstype FSTYPE] [--iops IOPS] [--n N] [--keep]
