@@ -22,7 +22,16 @@ submit
 example:
 
 ```
-batchit submit --image worker:latest --role worker-role --queue big-queue --jobname my-work --ebs /mnt/my-ebs:500:st1:ext4 some.sh
+batchit submit \
+            --image worker:latest \
+            --role worker-role \
+            --queue big-queue \
+            --jobname my-work \
+            --cpus 32 \
+            --mem 32000
+            --envvars "sample=SS-1234" "reference=hg38" "bucket="my-s3-bucket" \
+            --ebs /mnt/my-ebs:500:st1:ext4 \
+            align.sh
 ```
 
 where the `image` must be present in your elastic container registry, and the role and queue in their respective places
@@ -31,6 +40,18 @@ where the `image` must be present in your elastic container registry, and the ro
 
 The volume will be cleaned up automatically when the container exits.
 
+For this example a simplified `align.sh` might look like:
+
+```
+aws s3 cp s3://{bucket}/{sample}_r1.fq .
+aws s3 cp s3://{bucket}/{sample}_r2.fq .
+aws s3 sync s3://{bucket}/assets/{reference} .
+bwa mem -t {cpus} {reference}.fa {sample}_r1.fq {sample}_r2.fq \
+      | samtools sort -o {sample}.bam
+samtools index {sample}.bam
+aws s3 cp {sample}.bam s3://{bucket}/
+aws s3 cp {sample}.bam.bai s3://{bucket}/
+```
 
 ebsmount
 --------
