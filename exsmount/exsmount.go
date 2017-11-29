@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"bitbucket.org/base2genomicsteam/batchit"
+	"github.com/base2genomics/batchit"
 
 	arg "github.com/alexflint/go-arg"
 	"github.com/aws/aws-sdk-go/aws"

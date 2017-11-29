@@ -7,11 +7,11 @@ import (
 	"sort"
 	"strconv"
 
-	"bitbucket.org/base2genomicsteam/batchit"
-	"bitbucket.org/base2genomicsteam/batchit/ddv"
-	"bitbucket.org/base2genomicsteam/batchit/exsmount"
-	"bitbucket.org/base2genomicsteam/batchit/logof"
-	"bitbucket.org/base2genomicsteam/batchit/submit"
+	"github.com/base2genomics/batchit"
+	"github.com/base2genomics/batchit/ddv"
+	"github.com/base2genomics/batchit/exsmount"
+	"github.com/base2genomics/batchit/logof"
+	"github.com/base2genomics/batchit/submit"
 )
 
 type progPair struct {
