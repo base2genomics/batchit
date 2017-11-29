@@ -40,8 +40,10 @@ where the `image` must be present in your elastic container registry, and the ro
 mode so that it has access to the EBS volume that is attached to /dev in the instance.
 (We stole this idea from [aegea](https://github.com/kislyuk/aegea))
 
-
 The volume will be cleaned up automatically when the **container** exits.
+
+Note that array jobs are also supported with `--arraysize INT` parameter. Currently, the user is responsible for specifying
+the dependency mode (`N_TO_N` or `SEQUENTIAL`) to the `--dependson` parameter.
 
 For this example a simplified `align.sh` might look like:
 
