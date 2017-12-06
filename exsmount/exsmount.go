@@ -322,12 +322,12 @@ func CreateAttach(cli *Args) ([]string, error) {
 				return nil, errors.Wrap(err, "error creating volume")
 			}
 		}
-		time.Sleep(4 * time.Second) // sleep to avoid doing too many requests.
+		time.Sleep(3 * time.Second) // sleep to avoid doing too many requests.
 
 		attached := false
 		lastDevice := ""
 		for k := int64(1); k < 7; k++ {
-			attachDevice := findNextDevNode("/dev/xvd", letters)
+			attachDevice := findNextDevNode("/dev/xvd", letters[k+1:len(letters)])
 			if attachDevice == lastDevice && k > 4 {
 				attachDevice = "/dev/xvd"
 				i := rand.Intn(len(letters))
@@ -344,7 +344,7 @@ func CreateAttach(cli *Args) ([]string, error) {
 			}); err != nil {
 				// race condition attaching devices from multiple containers to the same host /dev address.
 				// so retry 7 times (k) with randomish wait time.
-				log.Printf("%+T. %s", err, err)
+				log.Printf("retrying EBS attach because of difficulty getting volume. error was: %+T. %s", err, err)
 				if strings.Contains(err.Error(), "is already in use") {
 					time.Sleep((time.Duration(3 * (k + rand.Int63n(k)))) * time.Second)
 					continue
