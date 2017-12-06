@@ -329,9 +329,8 @@ func CreateAttach(cli *Args) ([]string, error) {
 		for k := int64(1); k < 7; k++ {
 			attachDevice := findNextDevNode("/dev/xvd", letters)
 			if attachDevice == lastDevice && k > 4 {
+				attachDevice = "/dev/xvd"
 				i := rand.Intn(len(letters))
-				attachDevice += letters[i : i+1]
-				i = rand.Intn(len(letters))
 				attachDevice += letters[i : i+1]
 				i = rand.Intn(len(letters))
 				attachDevice += letters[i : i+1]
