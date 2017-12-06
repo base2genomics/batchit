@@ -203,7 +203,7 @@ $BATCH_SCRIPT
 		}
 	}
 
-	if !strings.Contains(cli.Image, "amazonaws") {
+	if !strings.Contains(cli.Image, "/") {
 		stsvc := sts.New(sess)
 		user, err := stsvc.GetCallerIdentity(&sts.GetCallerIdentityInput{})
 		if err != nil {
