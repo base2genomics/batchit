@@ -259,6 +259,7 @@ $BATCH_SCRIPT
 	if err != nil {
 		panic(errors.Wrap(err, "error registering job definition"))
 	}
+	defer deleteJobDefinition(b, ro)
 	var deps []*batch.JobDependency
 	for _, dep := range cli.DependsOn {
 		deps = append(deps, &batch.JobDependency{JobId: aws.String(dep)})
@@ -304,4 +305,16 @@ $BATCH_SCRIPT
 		panic(errors.Wrap(err, "error submitting job"))
 	}
 	fmt.Println(*resp.JobId)
+}
+
+func deleteJobDefinition(b *batch.Batch, jdef *batch.RegisterJobDefinitionOutput) error {
+	jobDefToDelete := fmt.Sprintf("%s:%d", *jdef.JobDefinitionName, *jdef.Revision)
+	input := &batch.DeregisterJobDefinitionInput{
+		JobDefinition: aws.String(jobDefToDelete),
+	}
+	_, err := b.DeregisterJobDefinition(input)
+	if err != nil {
+		return err
+	}
+	return nil
 }
