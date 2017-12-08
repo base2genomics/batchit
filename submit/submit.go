@@ -26,7 +26,7 @@ type cliargs struct {
 	Image     string   `arg:"-i,required,help:image like $acct.dkr.ecr.$region.amazonaws.com/$image:$tag or $image:$tag"`
 	Registry  string   `arg:"env" help:"Docker image registry, defaults to $acct.dkr.ecr.$region.amazonaws.com"`
 	Role      string   `arg:"-r,required,help:existing role name"`
-	Region    string   `arg:"env" help:"region for batch setup"`
+	Region    string   `arg:"env:AWS_DEFAULT_REGION" help:"region for batch setup"`
 	Queue     string   `arg:"-q,required,help:job queue"`
 	ArraySize int64    `arg:"-a,help:optional size of array job"`
 	DependsOn []string `arg:"-d,help:jobId(s) that this job depends on"`
