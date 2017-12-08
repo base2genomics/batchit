@@ -311,7 +311,7 @@ func CreateAttach(cli *Args) ([]string, error) {
 
 	cli.Size = int64(float64(cli.Size)/float64(cli.N) + 0.5)
 	for i := 0; i < cli.N; i++ {
-		log.Println("batchit: creating volume:", i)
+		log.Println("batchit: creating EBS volume:", i)
 
 		var rsp *ec2.Volume
 		if rsp, err = Create(svc, iid, cli.Size, cli.VolumeType, cli.Iops, i); err != nil {
@@ -327,18 +327,36 @@ func CreateAttach(cli *Args) ([]string, error) {
 				return nil, errors.Wrap(err, "error creating volume")
 			}
 		}
+		attached := false
+
+		defer func() {
+			if !attached {
+				log.Println("batchit: unsuccessful EBS volume attachment, deleting volume")
+				_, err := svc.DeleteVolume(&ec2.DeleteVolumeInput{VolumeId: rsp.VolumeId})
+				if err != nil {
+					log.Println(err)
+				}
+			}
+		}()
 		time.Sleep(3 * time.Second) // sleep to avoid doing too many requests.
 
 		// http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/device_naming.html
 		// http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/volume_limits.html
-		attached := false
 		var attachDevice string
 		for _, prefix := range []string{"/dev/sd", "/dev/xvd"} {
 			if attached {
 				break
 			}
-			for k := int64(1); k < 7; k++ {
-				attachDevice = findNextDevNode(prefix, letters[k:len(letters)])
+
+			var koff, off int // these help so we don't retry the same dev multiple times
+			for k := int64(1); k < 7 && int(k)+koff < len(letters); k++ {
+				off, attachDevice = findNextDevNode(prefix, letters[int(k)+koff:len(letters)])
+				koff += off
+				if k > 3 {
+					// if we get high enough, we are probably racing with other jobs
+					// so introduce some randomness.
+					koff += rand.Intn(5)
+				}
 
 				if _, err := svc.AttachVolume(&ec2.AttachVolumeInput{
 					InstanceId: aws.String(iid.InstanceId),
@@ -349,7 +367,7 @@ func CreateAttach(cli *Args) ([]string, error) {
 					// so retry 7 times (k) with randomish wait time.
 					log.Printf("retrying EBS attach because of difficulty getting volume. error was: %+T. %s", err, err)
 					if strings.Contains(err.Error(), "is already in use") {
-						time.Sleep((time.Duration(3 * (k + rand.Int63n(k)))) * time.Second)
+						time.Sleep((time.Duration(3 * (k + rand.Int63n(2*k)))) * time.Second)
 						continue
 					}
 
@@ -484,12 +502,12 @@ func Main() {
 	fmt.Fprintf(os.Stderr, "mounted %d EBS drives to %s\n", len(devices), cli.MountPoint)
 }
 
-func findNextDevNode(prefix string, suffixChars string) string {
-	for _, s := range suffixChars {
+func findNextDevNode(prefix string, suffixChars string) (int, string) {
+	for i, s := range suffixChars {
 		if _, err := os.Stat(prefix + string(s)); err == nil {
 			continue
 		} else if os.IsNotExist(err) {
-			return prefix + string(s)
+			return i, prefix + string(s)
 		}
 	}
 	panic(fmt.Errorf("no device found with prefix: %s", prefix))
