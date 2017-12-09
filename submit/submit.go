@@ -24,7 +24,7 @@ import (
 
 type cliargs struct {
 	Image     string   `arg:"-i,required,help:image like $acct.dkr.ecr.$region.amazonaws.com/$image:$tag or $image:$tag"`
-	Registry  string   `arg:"env" help:"Docker image registry, defaults to $acct.dkr.ecr.$region.amazonaws.com"`
+	Registry  string   `arg:"env" help:"Docker image registry. [default: $acct.dkr.ecr.$region.amazonaws.com]"`
 	Role      string   `arg:"-r,required,help:existing role name"`
 	Region    string   `arg:"env:AWS_DEFAULT_REGION" help:"region for batch setup"`
 	Queue     string   `arg:"-q,required,help:job queue"`
