@@ -23,9 +23,10 @@ import (
 )
 
 type cliargs struct {
-	Image     string   `arg:"-i,required,help:ECR image like $acct.dkr.ecr.$region.amazonaws.com/$tag"`
+	Image     string   `arg:"-i,required,help:image like $acct.dkr.ecr.$region.amazonaws.com/$image:$tag or $image:$tag"`
+	Registry  string   `arg:"env" help:"Docker image registry. [default: $acct.dkr.ecr.$region.amazonaws.com]"`
 	Role      string   `arg:"-r,required,help:existing role name"`
-	Region    string   `arg:"help:region for batch setup"`
+	Region    string   `arg:"env:AWS_DEFAULT_REGION" help:"region for batch setup"`
 	Queue     string   `arg:"-q,required,help:job queue"`
 	ArraySize int64    `arg:"-a,help:optional size of array job"`
 	DependsOn []string `arg:"-d,help:jobId(s) that this job depends on"`
@@ -203,13 +204,25 @@ $BATCH_SCRIPT
 		}
 	}
 
-	if !strings.Contains(cli.Image, "/") {
-		stsvc := sts.New(sess)
-		user, err := stsvc.GetCallerIdentity(&sts.GetCallerIdentityInput{})
-		if err != nil {
-			panic(err)
+	if cli.Registry == "" {
+		if !strings.Contains(cli.Image, "/") {
+			stsvc := sts.New(sess)
+			user, err := stsvc.GetCallerIdentity(&sts.GetCallerIdentityInput{})
+			if err != nil {
+				panic(err)
+			}
+			cli.Image = fmt.Sprintf("%s.dkr.ecr.%s.amazonaws.com/%s", *user.Account, *sess.Config.Region, cli.Image)
 		}
-		cli.Image = fmt.Sprintf("%s.dkr.ecr.%s.amazonaws.com/%s", *user.Account, *sess.Config.Region, cli.Image)
+	} else {
+		if cli.Registry == "hub.docker.com" || cli.Registry == "docker.com" {
+			cli.Registry = "registry.hub.docker.com"
+		}
+		if cli.Registry == "registry.hub.docker.com" {
+			if !strings.Contains(cli.Image, "/") {
+				cli.Image = fmt.Sprintf("library/%s", cli.Image)
+			}
+		}
+		cli.Image = fmt.Sprintf("%s/%s", cli.Registry, cli.Image)
 	}
 	var arrayProp *batch.ArrayProperties
 	if cli.ArraySize != 0 {
