@@ -30,6 +30,9 @@ func LogOf(jobId string, region string) int {
 	sort.Slice(output.Jobs, func(i, j int) bool { return *output.Jobs[i].StartedAt < *output.Jobs[j].StartedAt })
 	j := output.Jobs[len(output.Jobs)-1]
 	stream := j.Container.LogStreamName
+	if stream == nil {
+		log.Fatalf("job %s not found. has it started?", jobId)
+	}
 
 	gli := &cloudwatchlogs.GetLogEventsInput{
 		LogGroupName:  aws.String("/aws/batch/job"),

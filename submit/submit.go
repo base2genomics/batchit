@@ -45,36 +45,12 @@ func (c cliargs) Version() string {
 }
 
 func getRole(svc *iam.IAM, role string) *iam.Role {
-
-	var roles []*iam.Role
-	var marker *string
-
-	for {
-
-		params := &iam.ListRolesInput{
-			MaxItems: aws.Int64(100),
-			Marker:   marker,
-		}
-
-		r, err := svc.ListRoles(params)
-		if err != nil {
-			panic(err)
-		}
-		roles = append(roles, r.Roles...)
-		if !*r.IsTruncated {
-			break
-		}
-		marker = r.Marker
+	inp := &iam.GetRoleInput{RoleName: &role}
+	op, err := svc.GetRole(inp)
+	if err != nil {
+		panic(err)
 	}
-	var irole *iam.Role
-	for _, r := range roles {
-		if *r.RoleName == role {
-			irole = r
-			break
-		}
-	}
-
-	return irole
+	return op.Role
 }
 
 const scriptPrefix = "script:"
