@@ -57,8 +57,8 @@ func LogOf(jobId string, region string) int {
 }
 
 func Main() {
-	if len(os.Args) < 2 {
-		fmt.Println("usage: logof JobId region")
+	if len(os.Args) < 3 {
+		fmt.Println("usage: batchit logof JobId region")
 		os.Exit(1)
 	}
 	os.Exit(LogOf(os.Args[1], os.Args[2]))
