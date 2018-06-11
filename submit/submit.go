@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -14,9 +15,11 @@ import (
 
 	arg "github.com/alexflint/go-arg"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/batch"
 	"github.com/aws/aws-sdk-go/service/iam"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/brentp/xopen"
 	"github.com/pkg/errors"
@@ -34,6 +37,7 @@ type cliargs struct {
 	EnvVars   []string `arg:"-v,help:key-value environment pairs of the form NAME=value"`
 	CPUs      int      `arg:"-c,help:number of cpus reserved by the job"`
 	Volumes   []string `arg:"-o,help:HOST_PATH=CONTAINER_PATH"`
+	S3Outputs string   `arg:"help:comma-delimited list of s3 paths indicating the output of this run. If all present job will *not* be run."`
 	Mem       int      `arg:"-m,help:memory (MiB) reserved by the job"`
 	Ebs       string   `arg:"-e,help:args for ebs mount. format mount-point:size:volume-type:fstype eg /mnt/xx:500:sc1:ext4 where last 2 arguments are optional and default as shown. This assumes that batchit is installed on the host. If type==io1 the 5th argument must specify the IOPs (between 100 and 20000)"`
 	JobName   string   `arg:"-j,required,help:name of job"`
@@ -99,9 +103,58 @@ cd $TMPDIR`, mnt)
 	return tmp
 }
 
+func outputExists(s3o *s3.S3, path string) bool {
+	if strings.HasPrefix(path, "s3://") {
+		path = path[5:]
+	}
+	bk := strings.SplitN(path, "/", 2)
+	ho, err := s3o.HeadObject(&s3.HeadObjectInput{Bucket: aws.String(bk[0]), Key: aws.String(bk[1])})
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case "Forbidden":
+				log.Fatalf("you do not have permissions to access %s", path)
+				return false
+			case "NotFound":
+				return false
+			default:
+				log.Println("unknown error:", aerr.Code())
+				return false
+			}
+
+		}
+	}
+
+	return ho.ContentLength != nil && *ho.ContentLength > 0
+}
+
+func outputsExist(sess *session.Session, paths []string) bool {
+	svc := s3.New(sess)
+	for _, p := range paths {
+		if !outputExists(svc, p) {
+			return false
+		}
+	}
+	return true
+}
+
 func Main() {
 	cli := &cliargs{CPUs: 1, Mem: 1048, Retries: 1, Region: "us-east-1"}
 	p := arg.MustParse(cli)
+
+	cfg := aws.NewConfig().WithRegion(cli.Region)
+	sess := session.Must(session.NewSession(cfg))
+
+	if cli.S3Outputs != "" {
+		if outputsExist(sess, strings.Split(cli.S3Outputs, ",")) {
+			max := 100
+			if max > len(cli.S3Outputs) {
+				max = len(cli.S3Outputs)
+			}
+			fmt.Fprintln(os.Stderr, "[batchit submit] all output found for "+cli.S3Outputs[0:max]+"... not re-running")
+			return
+		}
+	}
 	var ebsCmd [3]string
 	if len(cli.Ebs) > 0 {
 		ebs := strings.Split(cli.Ebs, ":")
@@ -142,8 +195,6 @@ func Main() {
 		ebsCmd[2] = fmt.Sprintf(`for sig in INT TERM EXIT; do trap "set +e; umount %s || umount -l %s; batchit ddv $vid; if [[ $sig != EXIT ]]; then trap - $sig EXIT; kill -s $sig $$; fi" $sig; done`, ebs[0], ebs[0])
 	}
 
-	cfg := aws.NewConfig().WithRegion(cli.Region)
-	sess := session.Must(session.NewSession(cfg))
 	role := getRole(iam.New(sess, cfg), cli.Role)
 	if role == nil {
 		panic(fmt.Sprintf("role: %s not found for your account in region: %s", cli.Role, cli.Region))
@@ -179,6 +230,13 @@ $BATCH_SCRIPT
 			commands = append(commands, &tmp)
 		}
 	}
+
+	/* TODO: try to upload to outputs from CWD
+	if cli.S3Outputs != "" {
+		cmd := "batchit s3upload --nofail " + strings.Join(strings.Split(cli.S3Outputs, ","), " ")
+		commands = append(commands, &cmd)
+	}
+	*/
 
 	if cli.Registry == "" {
 		if !strings.Contains(cli.Image, "/") {
