@@ -11,6 +11,7 @@ import (
 	"github.com/base2genomics/batchit/ddv"
 	"github.com/base2genomics/batchit/exsmount"
 	"github.com/base2genomics/batchit/logof"
+	"github.com/base2genomics/batchit/s3upload"
 	"github.com/base2genomics/batchit/submit"
 )
 
@@ -26,6 +27,7 @@ var progs = map[string]progPair{
 	"logof":      progPair{"get the log of a given job id", logof.Main},
 	"submit":     progPair{"run a batch command", submit.Main},
 	"ddv":        progPair{"detach and delete a volume by id", ddv.Main},
+	"s3upload":   progPair{"upload local files to matching s3 paths in parallel", s3upload.Main},
 }
 
 func printProgs() {

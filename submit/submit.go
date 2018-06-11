@@ -103,7 +103,10 @@ cd $TMPDIR`, mnt)
 	return tmp
 }
 
-func outputExists(s3o *s3.S3, path string) bool {
+var NotFound = errors.New("not found")
+
+// return that the file exists, its size, and any error
+func OutputExists(s3o *s3.S3, path string) (bool, int64, error) {
 	if strings.HasPrefix(path, "s3://") {
 		path = path[5:]
 	}
@@ -113,25 +116,28 @@ func outputExists(s3o *s3.S3, path string) bool {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
 			case "Forbidden":
-				log.Fatalf("you do not have permissions to access %s", path)
-				return false
+				return false, 0, fmt.Errorf("you do not have permissions to access %s", path)
 			case "NotFound":
-				return false
+				return false, 0, NotFound
 			default:
-				log.Println("unknown error:", aerr.Code())
-				return false
+				return false, 0, aerr
 			}
 
 		}
+		return false, 0, err
 	}
 
-	return ho.ContentLength != nil && *ho.ContentLength > 0
+	return ho.ContentLength != nil && *ho.ContentLength > 0, *ho.ContentLength, nil
 }
 
 func outputsExist(sess *session.Session, paths []string) bool {
 	svc := s3.New(sess)
 	for _, p := range paths {
-		if !outputExists(svc, p) {
+		found, _, err := OutputExists(svc, p)
+		if err != nil && err != NotFound {
+			log.Fatal(err)
+		}
+		if !found {
 			return false
 		}
 	}
@@ -151,7 +157,7 @@ func Main() {
 			if max > len(cli.S3Outputs) {
 				max = len(cli.S3Outputs)
 			}
-			fmt.Fprintln(os.Stderr, "[batchit submit] all output found for "+cli.S3Outputs[0:max]+"... not re-running")
+			fmt.Fprintln(os.Stderr, "[batchit submit] all output found for "+cli.S3Outputs[0:max]+"... not re-running\n")
 			return
 		}
 	}
@@ -231,12 +237,10 @@ $BATCH_SCRIPT
 		}
 	}
 
-	/* TODO: try to upload to outputs from CWD
 	if cli.S3Outputs != "" {
 		cmd := "batchit s3upload --nofail " + strings.Join(strings.Split(cli.S3Outputs, ","), " ")
 		commands = append(commands, &cmd)
 	}
-	*/
 
 	if cli.Registry == "" {
 		if !strings.Contains(cli.Image, "/") {
