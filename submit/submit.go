@@ -238,7 +238,7 @@ $BATCH_SCRIPT
 	}
 
 	if cli.S3Outputs != "" {
-		cmd := "batchit s3upload --nofail " + strings.Join(strings.Split(cli.S3Outputs, ","), " ")
+		cmd := fmt.Sprintf("batchit s3upload -c --region %s --nofail %s", cli.Region, strings.Join(strings.Split(cli.S3Outputs, ","), " "))
 		commands = append(commands, &cmd)
 	}
 

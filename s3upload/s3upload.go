@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/base2genomics/batchit/submit"
-	"github.com/pkg/errors"
 
 	arg "github.com/alexflint/go-arg"
 	"github.com/aws/aws-sdk-go/aws"
@@ -37,16 +36,28 @@ With '-c', if the local size does not match the size in S3, the file will be upl
 	`
 }
 
-var Found = errors.New("file found")
-
-func upload(s3path string, region string, check bool, nofail bool) error {
-	if strings.HasPrefix(s3path, "s3://") {
-		s3path = s3path[5:]
+func findIn(haystack []string, needle string) int {
+	for i, h := range haystack {
+		if needle == h {
+			return i
+		}
 	}
-	bk := strings.SplitN(s3path, "/", 2)
+	return -1
+}
 
-	tmp := strings.Split(s3path, "/")
-	localpath := tmp[len(tmp)-1]
+func getupload(s3paths []string, svc *s3.S3, check bool, nofail bool) ([]*s3manager.UploadInput, error) {
+	uploads := make([]*s3manager.UploadInput, 0, len(s3paths))
+	localpaths := make([]string, len(s3paths))
+	founds := make([]bool, len(s3paths))
+
+	for i, s3path := range s3paths {
+		if strings.HasPrefix(s3path, "s3://") {
+			s3path = s3path[5:]
+		}
+
+		tmp := strings.Split(s3path, "/")
+		localpaths[i] = tmp[len(tmp)-1]
+	}
 
 	err := filepath.Walk(".", func(path string, f os.FileInfo, err error) error {
 		if err != nil {
@@ -56,57 +67,53 @@ func upload(s3path string, region string, check bool, nofail bool) error {
 			return nil
 		}
 		tmp := strings.Split(f.Name(), "/")
-		if tmp[len(tmp)-1] == localpath {
-			cfg := aws.NewConfig().WithRegion(region)
-			sess := session.Must(session.NewSession(cfg))
-			svc := s3.New(sess)
-			if check {
-				// check if file exists in s3
-				exists, size, err := submit.OutputExists(svc, s3path)
-				if err != nil && err != submit.NotFound {
-					return err
-				}
-				if err == nil && exists && size == f.Size() {
-					fmt.Fprintf(os.Stderr, "[batchit s3uploader] %s already in s3, skipping\n", f.Name())
-					return Found
-				}
 
-			}
-			uploader := s3manager.NewUploaderWithClient(svc, func(u *s3manager.Uploader) {
-				u.PartSize = 16 * 1024 * 1024 // 64MB per part
-				u.Concurrency = 5
-			})
-
-			fp, err := os.Open(f.Name())
-			if err != nil {
+		idx := findIn(localpaths, tmp[len(tmp)-1])
+		if idx == -1 {
+			return nil
+		}
+		founds[idx] = true
+		s3path := s3paths[idx]
+		if check {
+			// check if file exists in s3
+			exists, size, err := submit.OutputExists(svc, s3path)
+			if err != nil && err != submit.NotFound {
 				return err
 			}
-			defer fp.Close()
-
-			fmt.Fprintf(os.Stderr, "[batchit s3uploader] starting upload of %s\n", f.Name())
-			t := time.Now()
-
-			_, err = uploader.Upload(&s3manager.UploadInput{
-				Bucket: aws.String(bk[0]),
-				Key:    aws.String(bk[1]),
-				Body:   fp,
-			})
-			if err != nil {
-				log.Println(err, "error uploading: %s", f.Name())
-				return errors.Wrapf(err, "error uploading: %s", f.Name())
+			if err == nil && exists && size == f.Size() {
+				fmt.Fprintf(os.Stderr, "[batchit s3uploader] %s already in s3, skipping\n", f.Name())
+				return nil
 			}
-			fmt.Fprintf(os.Stderr, "[batchit s3uploader] uploaded %s in %s\n", f.Name(), time.Since(t))
-			return Found
+
 		}
+
+		fp, err := os.Open(f.Name())
+		if err != nil {
+			return err
+		}
+		if strings.HasPrefix(s3path, "s3://") {
+			s3path = s3path[5:]
+		}
+		bk := strings.SplitN(s3path, "/", 2)
+		uploads = append(uploads, &s3manager.UploadInput{
+			Bucket: aws.String(bk[0]),
+			Key:    aws.String(bk[1]),
+			Body:   fp,
+		})
 		return nil
 	})
-	if err == Found {
-		return nil
+	for i, found := range founds {
+		if found {
+			continue
+		}
+		if nofail {
+			log.Println("local file not found for " + s3paths[i])
+		} else {
+			log.Fatal("local file not found for " + s3paths[i])
+		}
+
 	}
-	if err == nil {
-		return errors.Wrapf(submit.NotFound, s3path)
-	}
-	return err
+	return uploads, err
 }
 
 func Main() {
@@ -114,32 +121,50 @@ func Main() {
 	// TODO: check Region with iid.
 	cli := &cliargs{Processes: 2, Region: "us-east-1"}
 	arg.MustParse(cli)
+	cfg := aws.NewConfig().WithRegion(cli.Region)
+	sess := session.Must(session.NewSession(cfg))
+	svc := s3.New(sess)
 
-	paths := make(chan string, len(cli.S3Paths))
-	for _, p := range cli.S3Paths {
-		paths <- p
+	uploads, err := getupload(cli.S3Paths, svc, cli.Check, cli.NoFail)
+	if err != nil {
+		log.Fatal(err)
 	}
-	close(paths)
 
-	wg := &sync.WaitGroup{}
+	iter := make(chan *s3manager.UploadInput, len(uploads))
+	for _, u := range uploads {
+		iter <- u
+	}
+	close(iter)
+
+	var wg sync.WaitGroup
+	wg.Add(cli.Processes)
+
 	for i := 0; i < cli.Processes; i++ {
-		wg.Add(1)
 		go func() {
-			for path := range paths {
-				if err := upload(path, cli.Region, cli.Check, cli.NoFail); err != nil {
-					if cli.NoFail {
-						log.Println(err)
-						if len(cli.S3Paths) > 1 {
-							log.Println("continuing with other uploads")
-						}
-					} else {
-						log.Fatal(err)
-					}
+			// NOTE: using multiple uploaders, each of which has concurrency. Might want to tune this later.
+			uploader := s3manager.NewUploaderWithClient(svc, func(u *s3manager.Uploader) {
+				u.PartSize = 16 * 1024 * 1024 // 64MB per part
+				u.LeavePartsOnError = false
+				u.Concurrency = 5
+			})
+			for u := range iter {
+
+				t := time.Now()
+				fmt.Fprintf(os.Stderr, "[batchit s3upload] starting upload of %s\n", u.Body.(*os.File).Name())
+
+				_, err := uploader.Upload(u, func(u *s3manager.Uploader) {
+					u.PartSize = 24 * 1024 * 1024 // 64MB per part
+					u.LeavePartsOnError = false
+				})
+				if err != nil {
+					log.Fatal(err)
 				}
+				fmt.Fprintf(os.Stderr, "[batchit s3upload] uploaded %s in %s\n", u.Body.(*os.File).Name(), time.Since(t))
+
 			}
 			wg.Done()
 		}()
 	}
 	wg.Wait()
-	// always has non-zero exit status.
+
 }
