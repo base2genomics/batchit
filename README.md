@@ -48,6 +48,7 @@ the dependency mode (`N_TO_N` or `SEQUENTIAL`) to the `--dependson` parameter.
 For this example a simplified `align.sh` might look like:
 
 ```
+set -euo pipefail
 aws s3 cp s3://{bucket}/{sample}_r1.fq .
 aws s3 cp s3://{bucket}/{sample}_r2.fq .
 aws s3 sync s3://{bucket}/assets/{reference} .
