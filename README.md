@@ -45,10 +45,11 @@ The volume will be cleaned up automatically when the **container** exits.
 Note that array jobs are also supported with `--arraysize INT` parameter. Currently, the user is responsible for specifying
 the dependency mode (`N_TO_N` or `SEQUENTIAL`) to the `--dependson` parameter.
 
-For this example a simplified `align.sh` might look like:
+For this example a simplified `align.sh` might look like (always include the first two lines):
 
 ```
 set -euo pipefail
+cd $TMPDIR
 aws s3 cp s3://{bucket}/{sample}_r1.fq .
 aws s3 cp s3://{bucket}/{sample}_r2.fq .
 aws s3 sync s3://{bucket}/assets/{reference} .
