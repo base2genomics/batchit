@@ -41,19 +41,12 @@ AWS Batch itself requires the `AWSBatchServiceRole` and `ecsInstanceRole` genera
 
 
 #### Docker
-The `image` must be present in your elastic container registry and the container must have the following dependencies:
-- batchit
+The `image` must be present in your elastic container registry and the container will itself need batchit as a dependency if `--ebs` is used. A typical Dockerfile entry for this will look like:
 
 ```
 RUN apt-get install -y wget
 RUN wget -qO /usr/bin/batchit https://github.com/base2genomics/batchit/releases/download/v0.4.2/batchit
 RUN chmod +x /usr/bin/batchit
-```
-
-- awscli
-```
-RUN apt-get install -y python python-dev python-pip
-RUN pip install awscli
 ```
 
 In this example `align.sh` contains the commands to be run. It will have access to a 500GB
