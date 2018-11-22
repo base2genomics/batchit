@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -278,7 +279,7 @@ func EFSMount(efs string, mountPoint string, mountOpts string) error {
 }
 
 // http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/device_naming.html
-const letters = "abcdefghijklmnopqrstuvwxyz"
+const letters = "bcdefghijklmnopqrstuvwxyz"
 
 func CreateAttach(cli *Args) ([]string, error) {
 	iid := &IID{}
@@ -343,14 +344,17 @@ func CreateAttach(cli *Args) ([]string, error) {
 		// http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/device_naming.html
 		// http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/volume_limits.html
 		var attachDevice string
-		for _, prefix := range []string{"/dev/sd", "/dev/xvd"} {
+		for pi, prefix := range []string{"/dev/sd", "/dev/sd", "/dev/xvd"} {
 			if attached {
 				break
 			}
 
 			var koff, off int // these help so we don't retry the same dev multiple times
-			for k := int64(1); k < 7 && int(k)+koff < len(letters); k++ {
-				off, attachDevice = findNextDevNode(prefix, letters[int(k)+koff:len(letters)])
+			for k := int64(0); k < 7 && int(k)+koff < len(letters); k++ {
+				off, attachDevice = findNextDevNode(prefix, pi, letters[int(k)+koff:len(letters)])
+				if off == -1 {
+					break
+				}
 				koff += off
 				if k > 3 {
 					// if we get high enough, we are probably racing with other jobs
@@ -366,8 +370,11 @@ func CreateAttach(cli *Args) ([]string, error) {
 					// race condition attaching devices from multiple containers to the same host /dev address.
 					// so retry 7 times (k) with randomish wait time.
 					log.Printf("retrying EBS attach because of difficulty getting volume. error was: %+T. %s", err, err)
+					if strings.Contains(err.Error(), "Invalid value") && strings.Contains(err.Error(), "for unixDevice") {
+						break
+					}
 					if strings.Contains(err.Error(), "is already in use") {
-						time.Sleep((time.Duration(3 * (k + rand.Int63n(2*k)))) * time.Second)
+						time.Sleep((time.Duration(3 * (k + rand.Int63n(2*k+1)))) * time.Second)
 						continue
 					}
 
@@ -502,15 +509,48 @@ func Main() {
 	fmt.Fprintf(os.Stderr, "mounted %d EBS drives to %s\n", len(devices), cli.MountPoint)
 }
 
-func findNextDevNode(prefix string, suffixChars string) (int, string) {
-	for i, s := range suffixChars {
-		if _, err := os.Stat(prefix + string(s)); err == nil {
-			continue
-		} else if os.IsNotExist(err) {
-			return i, prefix + string(s)
+func findNextDevNode(prefix string, pi int, suffixChars string) (int, string) {
+	if prefix == "/dev/sd" {
+		if pi == 0 {
+			for i, s := range suffixChars {
+				if _, err := os.Stat(prefix + string(s)); err == nil {
+					continue
+				} else if os.IsNotExist(err) {
+					return i, prefix + string(s)
+				}
+			}
+			return -1, ""
+		}
+		if pi != 0 {
+			for i, s := range suffixChars {
+				for j := 1; j < 15; j++ {
+					// can't use sdb1 if sdb exists.
+					if _, err := os.Stat(prefix + string(s)); err == nil {
+						continue
+					}
+					if _, err := os.Stat(prefix + string(s) + strconv.Itoa(j)); err == nil {
+						continue
+					} else if os.IsNotExist(err) {
+						return i, prefix + string(s) + strconv.Itoa(j)
+					}
+				}
+			}
+			return -1, ""
+		}
+
+	} else {
+		// /dev/xd
+		for _, a := range "bc" {
+			for i, b := range "abcdefghijklmnopqrstuvwxyz" {
+				if _, err := os.Stat(prefix + string(a) + string(b)); err == nil {
+					continue
+				} else if os.IsNotExist(err) {
+					return i, prefix + string(a) + string(b)
+				}
+			}
 		}
 	}
-	panic(fmt.Errorf("no device found with prefix: %s", prefix))
+	panic(fmt.Errorf("no available device found with prefix: %s", prefix))
 }
 
 func waitForDevice(device string) bool {
