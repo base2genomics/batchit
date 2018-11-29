@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/base2genomics/batchit"
 
@@ -18,6 +19,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/batch"
+	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/aws/aws-sdk-go/service/iam"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/sts"
@@ -357,7 +360,113 @@ $BATCH_SCRIPT
 		}
 		panic(errors.Wrap(err, "error submitting job"))
 	}
+
+	showConnectionInfo(b, *resp.JobId, sess, cli.Queue)
 	fmt.Println(*resp.JobId)
+}
+
+func getCluster(b *batch.Batch, q string, keyPair *string) string {
+
+	qi := &batch.DescribeJobQueuesInput{JobQueues: []*string{&q}}
+	qr, err := b.DescribeJobQueues(qi)
+	if err != nil {
+		log.Println(err)
+		os.Exit(0)
+	}
+	if len(qr.JobQueues) > 1 {
+		log.Println("instance info only supported for queues with a single compute env")
+	}
+	ce := qr.JobQueues[0].ComputeEnvironmentOrder[0].ComputeEnvironment
+
+	ci := &batch.DescribeComputeEnvironmentsInput{
+		ComputeEnvironments: []*string{ce},
+	}
+	cr, err := b.DescribeComputeEnvironments(ci)
+	if err != nil {
+		log.Println(err)
+		os.Exit(0)
+	}
+	*keyPair = *cr.ComputeEnvironments[0].ComputeResources.Ec2KeyPair
+	return *cr.ComputeEnvironments[0].EcsClusterArn
+}
+
+func showConnectionInfo(b *batch.Batch, jobid string, sess *session.Session, queue string) {
+	if os.Getenv("BATCHIT_SHOW_INSTANCE") == "" {
+		return
+	}
+	log.Println("waiting for job to start to get connection info")
+
+	dji := &batch.DescribeJobsInput{
+		Jobs: []*string{&jobid},
+	}
+	for i := 0; i < 100; i++ {
+		time.Sleep(20 * time.Second)
+		djo, err := b.DescribeJobs(dji)
+		if err != nil {
+			log.Println(err)
+			os.Exit(0)
+		}
+		if djo == nil {
+			break
+		}
+		var j = djo.Jobs[0]
+		if *j.Status != "RUNNING" {
+			log.Println("job status is ", *j.Status, " waiting")
+			continue
+		}
+
+		var ec = ecs.New(sess)
+		var keyPair = ""
+		var cluster = getCluster(b, queue, &keyPair)
+		log.Println(j.Container)
+
+		tmp := strings.Split(*j.Container.ContainerInstanceArn, "/")
+		ei := &ecs.DescribeContainerInstancesInput{
+			Cluster:            aws.String(cluster),
+			ContainerInstances: []*string{&tmp[1]},
+		}
+
+		eo, err := ec.DescribeContainerInstances(ei)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		instanceId := *eo.ContainerInstances[0].Ec2InstanceId
+		ec2s := ec2.New(sess)
+		log.Println("instance-id:", instanceId)
+
+		di := &ec2.DescribeInstancesInput{InstanceIds: []*string{&instanceId}}
+
+		do, err := ec2s.DescribeInstances(di)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		log.Printf("ssh -i ~/.ssh/%s.pem ec2-user@%s", keyPair, *do.Reservations[0].Instances[0].PublicIpAddress)
+		log.Println("TODO: get container from Task:", *j.Container.TaskArn, " https://docs.aws.amazon.com/sdk-for-go/api/service/ecs/#Task")
+		break
+		/*
+
+			di := &ec2.DescribeAddressesInput{
+				//Filters: []*ec2.Filter{
+				//	&ec2.Filter{Name: aws.String("instance-id"), Values: []*string{&instanceId}}},
+				Filters: []*ec2.Filter{
+					{
+						Name:   aws.String("domain"),
+						Values: aws.StringSlice([]string{"vpc"}),
+					},
+				},
+			}
+			do, err := ec2s.DescribeAddresses(di)
+			if err != nil {
+				log.Fatal(err)
+			}
+			log.Println(do)
+			log.Println(*do.Addresses[0].PublicIp)
+		*/
+
+	}
+
 }
 
 func deleteJobDefinition(b *batch.Batch, jdef *batch.RegisterJobDefinitionOutput) error {
