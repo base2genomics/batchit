@@ -34,6 +34,17 @@ batchit submit \
             align.sh
 ```
 
+### Interactive
+
+To get an interactive job, use the `submit` command, but instead of a script (`align.sh`) above,
+use, for example, "interactive:20" to get an interactive job that will run for 20 minutes.
+
+This command will start a job that sleeps for 20 minutes and the output an ssh command that will drop
+the user into the docker container running that command.
+
+This is useful for debugging as it quickly drops a user into the same environment that the jobs
+will be run in.
+
 #### batchit requirements
 
 #### AWS
