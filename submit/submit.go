@@ -61,6 +61,7 @@ func getRole(svc *iam.IAM, role string) *iam.Role {
 }
 
 const scriptPrefix = "script:"
+const interactivePrefix = "interactive:"
 
 // gzip and then base64 encode a shell script.
 func shellEncode(path string) string {
@@ -71,7 +72,20 @@ func shellEncode(path string) string {
 		if _, err := z.Write([]byte(path[len(scriptPrefix):])); err != nil {
 			panic(err)
 		}
-
+	} else if strings.HasPrefix(path, interactivePrefix) {
+		tmp := strings.Split(path, ":")
+		minutes := 20
+		if len(tmp) == 2 {
+			m, err := strconv.Atoi(tmp[1])
+			if err == nil {
+				minutes = m
+			} else {
+				log.Println("couldn't parse minutes from %s", tmp[1])
+			}
+		}
+		if _, err := z.Write([]byte(fmt.Sprintf("sleep %d", minutes*60))); err != nil {
+			panic(err)
+		}
 	} else {
 		rdr, err := xopen.Ropen(path)
 		if err != nil {
@@ -361,7 +375,9 @@ $BATCH_SCRIPT
 		panic(errors.Wrap(err, "error submitting job"))
 	}
 
-	showConnectionInfo(b, *resp.JobId, sess, cli.Queue)
+	if strings.HasPrefix(cli.Path, interactivePrefix) {
+		showConnectionInfo(b, *resp.JobId, sess, cli.Queue)
+	}
 	fmt.Println(*resp.JobId)
 }
 
@@ -391,9 +407,6 @@ func getCluster(b *batch.Batch, q string, keyPair *string) string {
 }
 
 func showConnectionInfo(b *batch.Batch, jobid string, sess *session.Session, queue string) {
-	if os.Getenv("BATCHIT_SHOW_INSTANCE") == "" {
-		return
-	}
 	log.Println("waiting for job to start to get connection info")
 
 	dji := &batch.DescribeJobsInput{
@@ -418,7 +431,6 @@ func showConnectionInfo(b *batch.Batch, jobid string, sess *session.Session, que
 		var ec = ecs.New(sess)
 		var keyPair = ""
 		var cluster = getCluster(b, queue, &keyPair)
-		log.Println(j.Container)
 
 		tmp := strings.Split(*j.Container.ContainerInstanceArn, "/")
 		ei := &ecs.DescribeContainerInstancesInput{
@@ -442,8 +454,26 @@ func showConnectionInfo(b *batch.Batch, jobid string, sess *session.Session, que
 			log.Fatal(err)
 		}
 
-		log.Printf("ssh -i ~/.ssh/%s.pem ec2-user@%s", keyPair, *do.Reservations[0].Instances[0].PublicIpAddress)
-		log.Println("TODO: get container from Task:", *j.Container.TaskArn, " https://docs.aws.amazon.com/sdk-for-go/api/service/ecs/#Task")
+		ti := &ecs.DescribeTasksInput{Cluster: aws.String(cluster), Tasks: []*string{j.Container.TaskArn}}
+		to, err := ec.DescribeTasks(ti)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if len(to.Tasks) != 1 {
+			log.Println("couldn't find container id")
+		}
+
+		c := to.Tasks[0].Containers[0]
+		_ = c
+		//log.Println(to)
+		//log.Println(j.Container)
+
+		dockerCmd := fmt.Sprintf(`docker exec -it $(curl -s "http://127.0.0.1:51678/v1/tasks?taskarn=%s" | grep -oP "DockerId..\"[^\"]+" | cut -d\" -f 3) bash`, *j.Container.TaskArn)
+
+		log.Printf("ssh -ti ~/.ssh/%s.pem ec2-user@%s '%s'", keyPair, *do.Reservations[0].Instances[0].PublicIpAddress, dockerCmd)
+		//log.Println("TODO: get container from Task:", *j.Container.TaskArn, " https://docs.aws.amazon.com/sdk-for-go/api/service/ecs/#Task")
+		// ssh -ti ~/.ssh/istore.pem ec2-user@34.203.245.158 'docker exec -it $(curl -s "http://127.0.0.1:51678/v1/tasks?taskarn=arn:aws:ecs:us-east-1:321620740768:task/c8fcafec-2f0b-4129-8b21-7fae81ae8be9" | grep -oP "DockerId..\"[^\"]+" | cut -d\" -f 3) bash'
 		break
 		/*
 
