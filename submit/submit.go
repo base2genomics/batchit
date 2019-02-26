@@ -234,7 +234,6 @@ func Main() {
 for i in "$@"; do eval "$i"; done
 batchit
 set -a
-if [ -f /etc/environment ]; then source /etc/environment; fi
 if [ -f /etc/default/locale ]; then source /etc/default/locale; fi
 set +a
 if [ -f /etc/profile ]; then source /etc/profile; fi
