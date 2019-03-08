@@ -113,7 +113,7 @@ func getTmp(cli *cliargs) string {
 	tmp := fmt.Sprintf(`# thanks Hao
 export TMPDIR="$(mktemp -d -p %s)"
 cleanup() { echo "batchit: deleting temp dir ${TMPDIR}"; umount -l /tmp/; rm -rf ${TMPDIR}; }
-trap cleanup EXIT
+trap "cleanup_volume EXIT; cleanup;" EXIT
 mkdir -p ${TMPDIR}/tmp/
 mount --bind ${TMPDIR}/tmp/ /tmp/
 cd $TMPDIR`, mnt)
@@ -178,6 +178,7 @@ func Main() {
 			return
 		}
 	}
+	cleanupDefault := `cleanup_volume() { true; }`
 	var ebsCmd [3]string
 	if len(cli.Ebs) > 0 {
 		ebs := strings.Split(cli.Ebs, ":")
@@ -215,7 +216,7 @@ func Main() {
 		ebsCmd[1] = `echo "vid: $vid"`
 		// volumes get deleted at instance termination, but this will delete when the container exits.
 		// unsets the trap for exit if it was already set to avoid loop.
-		ebsCmd[2] = fmt.Sprintf(`for sig in INT TERM EXIT; do trap "set +e; umount %s || umount -l %s; batchit ddv $vid; if [[ $sig != EXIT ]]; then trap - $sig EXIT; kill -s $sig $$; fi" $sig; done`, ebs[0], ebs[0])
+		ebsCmd[2] = fmt.Sprintf(`cleanup_volume() { set +e; sig="$1"; echo "batchit: cleaning up volume $vid on signal $sig"; umount %s || umount -l %s; batchit ddv $vid; if [[ $sig != EXIT ]]; then trap - $sig EXIT; kill -s $sig $$; fi }; for sig in INT TERM EXIT; do trap "cleanup_volume $sig" $sig; done`, ebs[0], ebs[0])
 	}
 
 	role := getRole(iam.New(sess, cfg), cli.Role)
@@ -242,11 +243,12 @@ set -Eeuo pipefail
 %s
 %s
 %s
+%s
 export BATCH_SCRIPT=$(mktemp)
 echo "$B64GZ" | base64 -d | gzip -dc > $BATCH_SCRIPT
 chmod +x $BATCH_SCRIPT
 $BATCH_SCRIPT
-			`, ebsCmd[0], ebsCmd[1], ebsCmd[2], tmpMnt)), "\n") {
+			`, cleanupDefault, ebsCmd[0], ebsCmd[1], ebsCmd[2], tmpMnt)), "\n") {
 		tmp := strings.TrimSpace(line[:])
 		if len(tmp) != 0 {
 			commands = append(commands, &tmp)
