@@ -178,7 +178,7 @@ func Main() {
 			return
 		}
 	}
-	cleanupDefault := `cleanup_volume() { echo "batchit: No volumes to clean up"; }`
+	cleanupDefault := `cleanup_volume() { true; }`
 	var ebsCmd [3]string
 	if len(cli.Ebs) > 0 {
 		ebs := strings.Split(cli.Ebs, ":")
