@@ -216,7 +216,7 @@ func Main() {
 		ebsCmd[1] = `echo "vid: $vid"`
 		// volumes get deleted at instance termination, but this will delete when the container exits.
 		// unsets the trap for exit if it was already set to avoid loop.
-		ebsCmd[2] = fmt.Sprintf(`cleanup_volume() { set +e; sig="$1"; echo "batchit: cleaning up volume $vid on signal $sig"; cd $(mktemp -d); umount %s || umount -l %s; batchit ddv $vid; if [[ $sig != EXIT ]]; then trap - $sig EXIT; kill -s $sig $$; fi }; for sig in INT TERM EXIT; do trap "cleanup_volume $sig" $sig; done; cd %s;`, ebs[0], ebs[0], ebs[0])
+		ebsCmd[2] = fmt.Sprintf(`cleanup_volume() { set +e; sig="$1"; echo "batchit: cleaning up volume $vid on signal $sig"; cd /; umount %s || umount -l %s; batchit ddv $vid; if [[ $sig != EXIT ]]; then trap - $sig EXIT; kill -s $sig $$; fi }; for sig in INT TERM EXIT; do trap "cleanup_volume $sig" $sig; done; cd %s;`, ebs[0], ebs[0], ebs[0])
 	}
 
 	role := getRole(iam.New(sess, cfg), cli.Role)
