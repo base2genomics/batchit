@@ -56,7 +56,7 @@ The `image` must be present in your elastic container registry and the container
 
 ```
 RUN apt-get install -y wget
-RUN wget -qO /usr/bin/batchit https://github.com/base2genomics/batchit/releases/download/v0.4.2/batchit
+RUN wget -qO /usr/bin/batchit https://github.com/base2genomics/batchit/releases/latest/download/batchit
 RUN chmod +x /usr/bin/batchit
 ```
 
